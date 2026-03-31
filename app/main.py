@@ -1,42 +1,51 @@
 from fastapi import FastAPI, Query
+from app.db import videos_collection
 
 app = FastAPI()
 
+# 🔹 Home route (DB test)
 @app.get("/")
 def home():
-    return {"message": "Hello Master Wayne"}
+    return {"message": "MongoDB Connected Successfully"}
 
-@app.get("/videos")
-def get_videos(page: int = Query(1), limit: int = Query(10)):
-    return {
-        "page": page,
-        "limit": limit,
-        "videos": []
-    }
-    from fastapi import FastAPI, Query
 
-app = FastAPI()
+# 🔹 Insert sample data (run once manually if needed)
+@app.get("/insert")
+def insert_sample():
+    videos_collection.insert_one({
+        "video_id": "101",
+        "title": "Sample Video",
+        "published_at": "2026-04-01"
+    })
+    return {"message": "Sample data inserted"}
 
-@app.get("/")
-def home():
-    return {"message": "Hello Master Wayne"}
 
-# Dummy dataset (100 videos)
-dummy_videos = [
-    {"id": i, "title": f"Video {i}"} for i in range(1, 101)
-]
-
+# 🔹 Get videos with pagination
 @app.get("/videos")
 def get_videos(page: int = Query(1), limit: int = Query(10)):
 
-    start = (page - 1) * limit
-    end = start + limit
+    skip = (page - 1) * limit
 
-    paginated_data = dummy_videos[start:end]
+    videos = list(
+        videos_collection
+        .find({}, {"_id": 0})
+        .sort("published_at", -1)
+        .skip(skip)
+        .limit(limit)
+    )
+
+    total = videos_collection.count_documents({})
 
     return {
         "page": page,
         "limit": limit,
-        "total": len(dummy_videos),
-        "videos": paginated_data
+        "total": total,
+        "videos": videos
     }
+
+
+# 🔹 Delete test data (optional cleanup)
+@app.get("/cleanup")
+def cleanup():
+    videos_collection.delete_many({"test": "connected"})
+    return {"message": "Test data removed"}
