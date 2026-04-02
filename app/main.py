@@ -1,40 +1,33 @@
 from fastapi import FastAPI, Query
-from app.db import videos_collection
+from db import videos_collection
+from fetcher import run_fetcher
+import threading
 
 app = FastAPI()
 
-# 🔹 Home route (DB test)
-@app.get("/")
-def home():
-    return {"message": "MongoDB Connected Successfully"}
 
-
-# 🔹 Insert sample data (run once manually if needed)
-@app.get("/insert")
-def insert_sample():
-    videos_collection.insert_one({
-        "video_id": "101",
-        "title": "Sample Video",
-        "published_at": "2026-04-01"
-    })
-    return {"message": "Sample data inserted"}
-
-
-# 🔹 Get videos with pagination
+# 🔹 Get videos with pagination + search
 @app.get("/videos")
-def get_videos(page: int = Query(1), limit: int = Query(10)):
-
+def get_videos(
+    page: int = Query(1),
+    limit: int = Query(10),
+    query: str = Query("cricket")
+):
     skip = (page - 1) * limit
+
+    search_filter = {
+        "title": {"$regex": query, "$options": "i"}
+    }
 
     videos = list(
         videos_collection
-        .find({}, {"_id": 0})
+        .find(search_filter, {"_id": 0})
         .sort("published_at", -1)
         .skip(skip)
         .limit(limit)
     )
 
-    total = videos_collection.count_documents({})
+    total = videos_collection.count_documents(search_filter)
 
     return {
         "page": page,
@@ -44,8 +37,17 @@ def get_videos(page: int = Query(1), limit: int = Query(10)):
     }
 
 
-# 🔹 Delete test data (optional cleanup)
-@app.get("/cleanup")
-def cleanup():
-    videos_collection.delete_many({"test": "connected"})
-    return {"message": "Test data removed"}
+# 🔹 Root route (health check)
+@app.get("/")
+def home():
+    return {"message": "API is running successfully"}
+
+
+# 🔹 Start background fetcher + server
+if __name__ == "__main__":
+    t = threading.Thread(target=run_fetcher)
+    t.daemon = True
+    t.start()
+
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)
