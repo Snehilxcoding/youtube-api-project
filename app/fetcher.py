@@ -1,8 +1,17 @@
 import requests
 import time
-from db import videos_collection
+import logging
+from app.config import API_KEYS, QUERIES, FETCH_INTERVAL
+from app.db import videos_collection
+logging.basicConfig(level=logging.INFO)
 
-API_KEY = "YOUR_API_KEY"
+current_key_index = 0
+
+def get_api_key():
+    global current_key_index
+    key = API_KEYS[current_key_index]
+    current_key_index = (current_key_index + 1) % len(API_KEYS)
+    return key
 
 
 def fetch_videos(query):
@@ -14,28 +23,42 @@ def fetch_videos(query):
         "type": "video",
         "order": "date",
         "maxResults": 10,
-        "key": API_KEY
+        "key": get_api_key()
     }
 
-    response = requests.get(url, params=params)
-    data = response.json()
+    try:
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        data = response.json()
+    except Exception as e:
+        logging.error(f"Error fetching data: {e}")
+        return
 
     for item in data.get("items", []):
         video_id = item["id"]["videoId"]
 
         video = {
-            "title": item["snippet"]["title"],
             "video_id": video_id,
+            "title": item["snippet"]["title"],
+            "description": item["snippet"]["description"],
             "published_at": item["snippet"]["publishedAt"],
             "thumbnail": item["snippet"]["thumbnails"]["default"]["url"]
         }
 
-        if not videos_collection.find_one({"video_id": video_id}):
-            videos_collection.insert_one(video)
+        try:
+            videos_collection.update_one(
+                {"video_id": video_id},
+                {"$set": video},
+                upsert=True
+            )
+        except Exception as e:
+            logging.error(f"DB insert error: {e}")
 
 
 def run_fetcher():
     while True:
-        print("Fetching latest videos...")
-        fetch_videos("cricket")
-        time.sleep(10)
+        for q in QUERIES:
+            logging.info(f"Fetching videos for: {q}")
+            fetch_videos(q)
+
+        time.sleep(FETCH_INTERVAL)
